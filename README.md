@@ -1,80 +1,19 @@
-# OPSWAT Scan Files — Sample Testing Script
+# OPSWAT Toolbox
 
-## What it does
+A personal collection of OPSWAT / MetaDefender tooling. Each tool lives in its own subfolder with its own README and can be used independently.
 
-This script automates end-to-end testing of MetaDefender against real malware samples. It has two phases:
+## Tools
 
-**1. Pull test samples from MalwareBazaar** (optional, on by default)
-Queries MalwareBazaar for samples — filterable by malware family (e.g. `Emotet`, `AgentTesla`) or file type (e.g. `exe`, `dll`) — and downloads up to N of them into `~/malwarecage`. Samples stay as password-protected ZIPs (`infected`) and are never extracted locally.
-
-**2. Scan with MetaDefender**
-Recursively walks the scan directory, uploads each file to either MetaDefender Cloud or a local MetaDefender Core instance, using rule `multiscan,unarchive,sanitize` so MetaDefender unpacks the encrypted ZIP server-side, multiscans it, and runs CDR. It polls until each scan completes, deletes the local ZIP once successfully uploaded, prints a results table, and saves full JSON reports plus a `summary.json`.
-
-## Why I built this
-
-I wanted a repeatable, one-command way to pull fresh, real-world malicious samples and run them through our MetaDefender setup — for demos, regression-checking detection/sanitization behavior, and validating Cloud vs. Core configs — without manually hunting for samples or handling unencrypted malware on disk.
-
-## Environment setup
-
-Requires Python 3.9+ and `requests`:
-```bash
-pip install requests
-```
-
-Set whichever of these you need as environment variables (script prompts/errors clearly if a required one is missing):
-
-| Variable | Purpose |
+| Tool | What it does |
 |---|---|
-| `OPSWAT_API_KEY` | MetaDefender Cloud API key |
-| `OPSWAT_LOCAL_API_KEY` | MetaDefender Core (local) API key |
-| `MALWAREBAZAAR_API_KEY` | MalwareBazaar Auth-Key |
+| **[opswat-scan-files](opswat-scan-files/)** | Automated MetaDefender sample testing — pulls real malware samples from MalwareBazaar and scans them via MetaDefender Cloud or a local Core instance, then reports verdicts. |
 
-**macOS / Linux** — add to `~/.bashrc` or `~/.zshrc`:
-```bash
-export OPSWAT_API_KEY="your_cloud_api_key_here"
-export OPSWAT_LOCAL_API_KEY="your_local_core_api_key_here"
-export MALWAREBAZAAR_API_KEY="your_malwarebazaar_authkey_here"
-```
-Then `source ~/.bashrc` or open a new terminal.
+## Adding a new tool
 
-**Windows** — add to `$PROFILE` (PowerShell):
-```powershell
-$env:OPSWAT_API_KEY = "your_cloud_api_key_here"
-$env:OPSWAT_LOCAL_API_KEY = "your_local_core_api_key_here"
-$env:MALWAREBAZAAR_API_KEY = "your_malwarebazaar_authkey_here"
-```
-If you don't know your profile path, `notepad $PROFILE` will create/open it. These take effect in new PowerShell sessions only.
+1. Create a new subfolder (e.g. `some-new-tool/`) with its own `README.md`.
+2. Add a row to the table above.
+3. Keep any shared ignore patterns in the repo-root `.gitignore`.
 
-Only set the keys for the paths you plan to use (e.g. skip `MALWAREBAZAAR_API_KEY` if you'll always pass `--no-download`).
+## Access
 
-## Options you'll fill in as it runs
-
-Run with no arguments for a fully interactive prompt, or pass flags to skip any prompt:
-
-| Prompt / Flag | What it controls |
-|---|---|
-| Cloud or Local Core (`--target`) | Where files get scanned (default: local) |
-| Download count (`--count`) | How many MalwareBazaar samples to pull (default: 5) |
-| File types (`--file-types`) | Comma-separated filter, e.g. `exe,dll` (blank = any) |
-| Malware families (`--families`) | Comma-separated filter, e.g. `AgentTesla,Emotet` (blank = random) |
-| `--no-download` | Skip MalwareBazaar entirely, just scan an existing folder |
-| `--dir` / positional arg | Directory to scan (default: `~/malwarecage`) |
-| `--out` | Where JSON reports get saved (default: `~/opswat/results`) |
-| `--rule` | Override processing rule (Cloud default: `multiscan,unarchive,sanitize`) |
-| `--private` | Sets `samplesharing: 0` |
-| `--private-processing` | Sets `privateProcessing: 1` (requires eligible account) |
-| `--archive-password` / `--file-password` | Override archive/file passwords sent to MetaDefender |
-| `--keep-zips` | Keep local ZIPs after upload instead of deleting them |
-| `--poll-seconds` / `--max-wait-seconds` | Polling interval and timeout while waiting on scan results |
-
-## What to expect as output
-
-Console output shows, per file: upload confirmation with `data_id`/`sha256`, then live polling progress (`progress=% status=...`) until the scan completes. At the end, a results table prints:
-
-```
-File          Verdict     AVs     Type   Threat          Sandbox   CDR
-------------  ----------  ------  -----  --------------  --------  --------
-sample.exe    Infected    42/45   exe    Trojan.Generic  malicious sanitized
-```
-
-Full per-file JSON reports are saved to `~/opswat/results/<filename>.<sha256_prefix>.json`, and a consolidated `summary.json` (verdicts, detection counts, sandbox/vulnerability/sanitization results for every file) lands in the same folder.
+Private repo. Collaborators get access to the whole toolbox, so everything here shares the same audience.
