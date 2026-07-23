@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# Local secrets — never commit API keys
+.env
+*.env
+
+# Never commit downloaded malware samples or scan output
+malwarecage/
+*.zip
+opswat/
+results/
+summary.json
