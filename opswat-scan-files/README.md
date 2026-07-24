@@ -27,12 +27,14 @@ Set whichever of these you need as environment variables (script prompts/errors 
 |---|---|
 | `OPSWAT_API_KEY` | MetaDefender Cloud API key |
 | `OPSWAT_LOCAL_API_KEY` | MetaDefender Core (local) API key |
+| `OPSWAT_LOCAL_URL` | MetaDefender Core base URL (optional; default `http://127.0.0.1:8008`) |
 | `MALWAREBAZAAR_API_KEY` | MalwareBazaar Auth-Key |
 
 **macOS / Linux** — add to `~/.bashrc` or `~/.zshrc`:
 ```bash
 export OPSWAT_API_KEY="your_cloud_api_key_here"
 export OPSWAT_LOCAL_API_KEY="your_local_core_api_key_here"
+export OPSWAT_LOCAL_URL="http://127.0.0.1:8008"   # only if Core isn't on localhost
 export MALWAREBAZAAR_API_KEY="your_malwarebazaar_authkey_here"
 ```
 Then `source ~/.bashrc` or open a new terminal.
@@ -41,6 +43,7 @@ Then `source ~/.bashrc` or open a new terminal.
 ```powershell
 $env:OPSWAT_API_KEY = "your_cloud_api_key_here"
 $env:OPSWAT_LOCAL_API_KEY = "your_local_core_api_key_here"
+$env:OPSWAT_LOCAL_URL = "http://127.0.0.1:8008"   # only if Core isn't on localhost
 $env:MALWAREBAZAAR_API_KEY = "your_malwarebazaar_authkey_here"
 ```
 If you don't know your profile path, `notepad $PROFILE` will create/open it. These take effect in new PowerShell sessions only.
@@ -54,6 +57,7 @@ Run with no arguments for a fully interactive prompt, or pass flags to skip any 
 | Prompt / Flag | What it controls |
 |---|---|
 | Cloud or Local Core (`--target`) | Where files get scanned (default: local) |
+| `--local-url` | Local Core base URL (overrides `OPSWAT_LOCAL_URL`; default `http://127.0.0.1:8008`) |
 | Download count (`--count`) | How many MalwareBazaar samples to pull (default: 5) |
 | File types (`--file-types`) | Comma-separated filter, e.g. `exe,dll` (blank = any) |
 | Malware families (`--families`) | Comma-separated filter, e.g. `AgentTesla,Emotet` (blank = random) |

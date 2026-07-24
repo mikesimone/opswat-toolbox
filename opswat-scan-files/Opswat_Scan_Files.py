@@ -22,6 +22,12 @@ Usage (bash / *nix):
   export OPSWAT_API_KEY='your_api_key_here'
   python3 Opswat_Scan_Files.py
 
+Local MetaDefender Core:
+  # Address defaults to http://127.0.0.1:8008; override via env var or flag.
+  $env:OPSWAT_LOCAL_URL = 'http://10.0.0.5:8008'   # PowerShell
+  export OPSWAT_LOCAL_URL='http://10.0.0.5:8008'   # bash
+  python Opswat_Scan_Files.py --target local --local-url http://10.0.0.5:8008
+
 Optional:
   python Opswat_Scan_Files.py C:\Users\me\samples
   python Opswat_Scan_Files.py --dir ~/samples
@@ -49,14 +55,19 @@ import requests
 # MetaDefender targets. API_BASE is reassigned in main() based on --target.
 # Cloud has a /v4 path prefix; Core (local) does not.
 CLOUD_API_BASE = "https://api.metadefender.com/v4"
-LOCAL_API_BASE = "http://127.0.0.1:8008"  # MetaDefender Core on this laptop
+DEFAULT_LOCAL_API_BASE = "http://127.0.0.1:8008"  # MetaDefender Core fallback
+# The local Core address is read from the environment so it can point at a
+# remote/other host without editing this file; --local-url still overrides.
+LOCAL_API_BASE = os.environ.get("OPSWAT_LOCAL_URL", DEFAULT_LOCAL_API_BASE)
 API_BASE = CLOUD_API_BASE
 
-# API keys are read from the environment (no secrets stored in this file):
+# API keys and the local URL are read from the environment (no secrets stored
+# in this file):
 #   OPSWAT_API_KEY        -> MetaDefender Cloud (work account)
-#   OPSWAT_LOCAL_API_KEY  -> MetaDefender Core (local, 127.0.0.1:8008)
+#   OPSWAT_LOCAL_API_KEY  -> MetaDefender Core (local)
+#   OPSWAT_LOCAL_URL      -> MetaDefender Core base URL (default 127.0.0.1:8008)
 #   MALWAREBAZAAR_API_KEY -> MalwareBazaar Auth-Key
-# Each can also be passed explicitly via --api-key / --mb-api-key.
+# Keys can also be passed via --api-key / --mb-api-key, the URL via --local-url.
 
 # Holding directory for samples. On this box this is the Defender-excluded
 # ~/malwarecage folder (C:\Users\<you>\malwarecage). Kept as ~ so the same
@@ -815,7 +826,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--local-url",
         default=LOCAL_API_BASE,
-        help=f"Base URL for local MetaDefender Core. Default: {LOCAL_API_BASE}",
+        help="Base URL for local MetaDefender Core. Overrides the OPSWAT_LOCAL_URL "
+        f"env var. Default: {LOCAL_API_BASE}",
     )
 
     parser.add_argument(
