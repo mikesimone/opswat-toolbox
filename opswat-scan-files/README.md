@@ -16,9 +16,11 @@ I wanted a repeatable, one-command way to pull fresh, real-world malicious sampl
 
 ## Environment setup
 
-Requires Python 3.9+ and `requests`:
+Requires Python 3.9+, `requests`, and `pyzipper` (for `--unzip` — MalwareBazaar's zips are AES-256 encrypted, which the standard library's `zipfile` can't decrypt):
 ```bash
-pip install requests
+pip install requests pyzipper
+# Debian/Ubuntu with an externally-managed Python may need:
+pip install --user --break-system-packages requests pyzipper
 ```
 
 Set whichever of these you need as environment variables (script prompts/errors clearly if a required one is missing):

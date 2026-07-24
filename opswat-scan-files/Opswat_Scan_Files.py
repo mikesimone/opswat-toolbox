@@ -48,11 +48,11 @@ import random
 import sys
 import textwrap
 import time
-import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import pyzipper
 import requests
 
 
@@ -178,6 +178,11 @@ def iter_files(root: Path) -> list[Path]:
 def unzip_password_protected(zip_path: Path, password: str) -> list[Path]:
     """Extract every member of ``zip_path`` alongside it, return the extracted paths.
 
+    MalwareBazaar delivers samples as WinZip AES-256 encrypted zips, which the
+    standard library's ``zipfile`` cannot decrypt at all (it raises "That
+    compression method is not supported" before it even gets to the password).
+    ``pyzipper.AESZipFile`` handles both AES and classic ZipCrypto transparently.
+
     Filenames are flattened to their basename (ignoring any directory
     component the zip entry carries) so extracted samples land directly in
     the scan directory next to everything else, and a malicious entry can't
@@ -186,7 +191,7 @@ def unzip_password_protected(zip_path: Path, password: str) -> list[Path]:
     dest_dir = zip_path.parent
     extracted: list[Path] = []
 
-    with zipfile.ZipFile(zip_path) as zf:
+    with pyzipper.AESZipFile(zip_path) as zf:
         pwd = password.encode("utf-8") if password else None
 
         for info in zf.infolist():
@@ -219,7 +224,7 @@ def run_unzip_phase(
 
         try:
             members = unzip_password_protected(path, archive_password or "")
-        except (zipfile.BadZipFile, NotImplementedError, RuntimeError, OSError) as exc:
+        except (pyzipper.BadZipFile, NotImplementedError, RuntimeError, OSError) as exc:
             print(f"[unzip] failed for {path.name}: {exc}; uploading zip as-is", file=sys.stderr)
             updated.append(path)
             continue
