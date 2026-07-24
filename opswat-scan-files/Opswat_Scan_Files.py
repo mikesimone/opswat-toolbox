@@ -37,6 +37,7 @@ import json
 import os
 import random
 import sys
+import textwrap
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -94,7 +95,7 @@ RESULT_LABELS = {
     14: "Exceeded scan timeout",
     15: "Unsupported",
     16: "Canceled",
-    17: "Encrypted",
+    17: "Mismatch",  # filetype/data mismatch (confirmed via STIX export)
     18: "Exceeded file size",
     19: "Partially scanned",
     20: "Potentially unwanted app",
@@ -102,10 +103,24 @@ RESULT_LABELS = {
     22: "Known threat",
     23: "Possible threat",
     24: "No scan results",
+    # AI Content Inspector verdict (AI-generated content detection).
+    63: "AI Generated",
+    # OPSWAT AI / deflection ("Alin") engine verdicts. When enabled, the
+    # deflection engine reports its own scan_all_result_i values before (or
+    # instead of) the multiscan pipeline.
+    67: "AI: Confidently Clean",
+    68: "AI: Confidently Malicious",
+    69: "AI: Undetermined",
     253: "Not scanned / rate limit exceeded",
     254: "In progress",
     255: "Queued / pending",
 }
+
+# scan_all_result_i values that are NOT a final verdict. 254/255 are the
+# classic in-progress/queued codes; 69 ("OPSWAT AI Undetermined") is transient
+# too — the deflection engine couldn't decide, so MetaDefender routes the file
+# to the full scan pipeline and scan_all_result_i is updated once it finishes.
+IN_PROGRESS_CODES = frozenset({69, 254, 255})
 
 
 @dataclass
@@ -484,46 +499,182 @@ def scan_code(report: dict[str, Any]) -> int | None:
 
 
 def is_complete(report: dict[str, Any]) -> bool:
+    # Progress of 100% is always terminal — even if the code is still a
+    # transient one, there is nothing further to wait for.
     if progress_percent(report) >= 100:
         return True
 
     code = scan_code(report)
 
-    if code is not None and code not in (254, 255):
+    if code is not None and code not in IN_PROGRESS_CODES:
         return True
 
     return False
 
 
+def flatten_sanitization(details: Any) -> list[tuple[str, str, int]]:
+    """Flatten Deep CDR ``sanitization_details.details`` into (action, object, count).
+
+    The structure is recursive: an entry is either a leaf (``object_name`` +
+    ``count``) or a container for an embedded file (its own nested ``details``
+    list, no ``count``). We keep only the leaves that carry a count.
+    """
+    leaves: list[tuple[str, str, int]] = []
+
+    if not isinstance(details, list):
+        return leaves
+
+    for entry in details:
+        if not isinstance(entry, dict):
+            continue
+
+        nested = entry.get("details")
+
+        if isinstance(nested, list) and nested:
+            leaves.extend(flatten_sanitization(nested))
+            continue
+
+        name = entry.get("object_name")
+        count = entry.get("count")
+
+        if name and count is not None:
+            try:
+                leaves.append((entry.get("action") or "modified", str(name), int(count)))
+            except (TypeError, ValueError):
+                continue
+
+    return leaves
+
+
+def aggregate_cdr(leaves: list[tuple[str, str, int]]) -> dict[tuple[str, str], int]:
+    agg: dict[tuple[str, str], int] = {}
+
+    for action, name, count in leaves:
+        agg[(action, name)] = agg.get((action, name), 0) + count
+
+    return agg
+
+
+def format_cdr(agg: dict[tuple[str, str], int]) -> str | None:
+    if not agg:
+        return None
+
+    # Group by action (removed first, then sanitized, then anything else).
+    action_order = {"removed": 0, "sanitized": 1}
+    by_action: dict[str, list[str]] = {}
+
+    for (action, name), count in sorted(agg.items(), key=lambda kv: kv[0][1]):
+        by_action.setdefault(action, []).append(f"{count} {name}")
+
+    parts = [
+        f"{action} " + ", ".join(items)
+        for action, items in sorted(by_action.items(), key=lambda kv: action_order.get(kv[0], 2))
+    ]
+
+    return "; ".join(parts)
+
+
+def dlp_hits(dlp_info: dict[str, Any]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+
+    for key, info in as_dict(dlp_info.get("hits")).items():
+        info = as_dict(info)
+        locations: list[str] = []
+
+        for hit in info.get("hits") or []:
+            location = as_dict(hit).get("location")
+            if location and location not in locations:
+                locations.append(location)
+
+        out.append(
+            {
+                "type": info.get("display_name") or key,
+                "count": len(info.get("hits") or []),  # total occurrences
+                "locations": locations[:5],  # digest; full detail is in the report JSON
+                "locations_total": len(locations),
+            }
+        )
+
+    return out
+
+
+def av_summary(scan_results: dict[str, Any]) -> tuple[int, Any, list[str]]:
+    """Return (detected_engine_count, total_avs, threat_names) from scan_details."""
+    detected = 0
+    threats: list[str] = []
+
+    for _, result in as_dict(scan_results.get("scan_details")).items():
+        result = as_dict(result)
+
+        if result.get("scan_result_i") in (1, 2):  # infected / suspicious
+            detected += 1
+            threat = result.get("threat_found")
+            if threat and threat not in threats:
+                threats.append(threat)
+
+    return detected, scan_results.get("total_avs"), threats
+
+
 def summarize(report: dict[str, Any]) -> dict[str, Any]:
     file_info = as_dict(report.get("file_info"))
     scan_results = as_dict(report.get("scan_results"))
-    sanitized = as_dict(report.get("sanitized"))
-    sandbox = as_dict(report.get("sandbox"))
-    vulnerability = as_dict(report.get("vulnerability"))
+    process_info = as_dict(report.get("process_info"))
+    post_processing = as_dict(process_info.get("post_processing"))
+    engine_results = as_dict(report.get("engine_results"))
+    ai_verdict = as_dict(as_dict(report.get("aicontentinspector_info")).get("final_verdict"))
+    filetype_info = as_dict(report.get("filetype_info"))
+    spoofing = as_dict(filetype_info.get("spoofing_info"))
+    vulnerability = as_dict(report.get("vulnerability_info"))
 
     code = scan_code(report)
-    verdict = RESULT_LABELS.get(code, f"Unknown code {code}") if code is not None else "Unknown"
+    # Prefer the authoritative label the API returns; fall back to our numeric
+    # map, then to the raw code. This auto-handles new codes (e.g. 63 "AI
+    # Generated", the OPSWAT-AI deflection verdicts) without a table update.
+    verdict = scan_results.get("scan_all_result_a")
+    if not verdict:
+        verdict = RESULT_LABELS.get(code, f"code {code}") if code is not None else "Unknown"
+
+    detected, total_avs, threats = av_summary(scan_results)
+
+    cdr_agg = aggregate_cdr(
+        flatten_sanitization(as_dict(post_processing.get("sanitization_details")).get("details"))
+    )
+
+    ai_result = ai_verdict.get("verdict")
+    ai_detected = bool(ai_result) and str(ai_result).strip().lower() not in ("", "not detected", "clean")
+    ai_explanation = "; ".join(x for x in (ai_verdict.get("verdict_explanation") or []) if x) or None
+
+    filetype_mismatch = bool(filetype_info.get("is_file_type_mismatch")) or (
+        spoofing.get("detection_result") not in (None, "", "Not Mismatched")
+    )
 
     return {
         "display_name": file_info.get("display_name"),
         "sha256": file_info.get("sha256"),
-        "file_type": file_info.get("file_type_extension"),
+        "file_type": file_info.get("file_type_id"),
         "verdict": verdict,
         "scan_all_result_i": code,
-        "detections": scan_results.get("total_detected_avs"),
-        "engines": scan_results.get("total_avs"),
-        "threat_name": scan_results.get("threat_name") or report.get("threat_name"),
-        "sandbox_verdict": sandbox.get("verdict"),
-        "sandbox_threat_level": sandbox.get("threatLevel"),
-        "vulnerability_severity": vulnerability.get("severity"),
-        "sanitization": sanitized.get("result"),
+        "process_result": process_info.get("result"),
+        "blocked_reason": process_info.get("blocked_reason") or None,
+        "av_detected": detected,
+        "av_total": total_avs,
+        "av_threats": threats,
+        "cdr_result": engine_results.get("sanitization_result"),
+        "cdr_removals": [
+            {"action": action, "object": name, "count": count}
+            for (action, name), count in sorted(cdr_agg.items())
+        ],
+        "cdr_text": format_cdr(cdr_agg),
+        "dlp_hits": dlp_hits(as_dict(report.get("dlp_info"))),
+        "ai_generated": ai_explanation or ("detected" if ai_detected else None),
+        "filetype_mismatch": filetype_mismatch or None,
+        "vulnerability_verdict": vulnerability.get("verdict"),
     }
 
 
 def print_table(rows: list[dict[str, Any]]) -> None:
-    headers = ["File", "Verdict", "AVs", "Type", "Threat", "Sandbox", "CDR"]
-    widths = [34, 18, 9, 8, 28, 14, 14]
+    headers = ["File", "Verdict", "AV", "CDR", "DLP"]
+    widths = [34, 31, 7, 11, 8]
 
     def cell(value: Any, width: int) -> str:
         text = "" if value is None else str(value)
@@ -538,22 +689,87 @@ def print_table(rows: list[dict[str, Any]]) -> None:
     print(" ".join("-" * w for w in widths))
 
     for row in rows:
-        avs = ""
+        av = ""
+        if row.get("av_total") is not None:
+            av = f"{row.get('av_detected', 0)}/{row.get('av_total')}"
 
-        if row.get("detections") is not None or row.get("engines") is not None:
-            avs = f"{row.get('detections', '?')}/{row.get('engines', '?')}"
+        cdr = ""
+        if row.get("cdr_removals") or row.get("cdr_result") == "Success":
+            cdr = "Sanitized"
+        elif row.get("cdr_result") and row.get("cdr_result") != "Not Run":
+            cdr = str(row.get("cdr_result"))
 
-        values = [
-            row.get("display_name"),
-            row.get("verdict"),
-            avs,
-            row.get("file_type"),
-            row.get("threat_name"),
-            row.get("sandbox_verdict"),
-            row.get("sanitization"),
-        ]
+        dlp = ""
+        n_dlp = len(row.get("dlp_hits") or [])
+        if n_dlp:
+            dlp = f"{n_dlp} hit" + ("s" if n_dlp != 1 else "")
 
+        values = [row.get("display_name"), row.get("verdict"), av, cdr, dlp]
         print(" ".join(cell(v, w) for v, w in zip(values, widths)))
+
+
+def finding_rows(row: dict[str, Any]) -> list[tuple[str, str, str, str]]:
+    """Expand one file's summary into normalized (category, finding, count, note) rows."""
+    out: list[tuple[str, str, str, str]] = []
+
+    for removal in row.get("cdr_removals") or []:
+        out.append(("CDR", str(removal.get("object")), str(removal.get("count")), str(removal.get("action"))))
+
+    for hit in row.get("dlp_hits") or []:
+        note = ""
+        locations = list(hit.get("locations") or [])
+        if locations:
+            note = locations[0]
+            extra = hit.get("locations_total", len(locations)) - 1
+            if extra > 0:
+                note += f" +{extra} more"
+        out.append(("DLP", str(hit.get("type")), str(hit.get("count") or ""), note))
+
+    threats = row.get("av_threats") or []
+    engines = f"{row.get('av_detected')}/{row.get('av_total')} engines"
+    for threat in threats:
+        out.append(("AV", str(threat), str(row.get("av_detected") or ""), engines))
+
+    if row.get("ai_generated"):
+        out.append(("AI", "AI-generated content", "-", str(row["ai_generated"])))
+
+    if row.get("filetype_mismatch"):
+        out.append(("Filetype", "type mismatch / spoofing", "-", "detected"))
+
+    vuln = row.get("vulnerability_verdict")
+    if isinstance(vuln, int) and vuln > 0:
+        out.append(("Vuln", "vulnerability", "-", f"verdict {vuln}"))
+
+    return out
+
+
+def print_details(rows: list[dict[str, Any]]) -> None:
+    """Normalized findings grid: one row per CDR removal / DLP hit / threat."""
+    expanded = [(row.get("display_name"), r) for row in rows for r in finding_rows(row)]
+
+    if not expanded:
+        return
+
+    headers = ["File", "Category", "Finding", "Count", "Note"]
+    widths = [30, 8, 30, 5, 26]
+
+    def cell(value: Any, width: int) -> str:
+        text = "" if value is None else str(value)
+        if len(text) > width:
+            text = text[: width - 1] + "…"
+        return text.ljust(width)
+
+    print()
+    print("Findings")
+    print(" ".join(cell(h, w) for h, w in zip(headers, widths)))
+    print(" ".join("-" * w for w in widths))
+
+    prev_file = None
+    for display_name, (category, finding, count, note) in expanded:
+        # Blank the repeated filename so each file reads as a visual block.
+        file_cell = "" if display_name == prev_file else display_name
+        prev_file = display_name
+        print(" ".join(cell(v, w) for v, w in zip([file_cell, category, finding, count, note], widths)))
 
 
 def parse_args() -> argparse.Namespace:
@@ -667,6 +883,14 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
+    # Verdict strings and the detail block use non-ASCII glyphs (…, ─). Force
+    # UTF-8 output so runs survive a cp1252 console or a redirected stdout.
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
+
     args = parse_args()
 
     # --- Choose MetaDefender target (Cloud vs local Core) ---
@@ -795,6 +1019,7 @@ def main() -> int:
     )
 
     print_table(summaries)
+    print_details(summaries)
     print()
     print(f"Full reports: {output_dir.resolve()}")
     print(f"Summary JSON: {summary_path.resolve()}")
