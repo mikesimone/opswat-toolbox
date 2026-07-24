@@ -58,6 +58,7 @@ Run with no arguments for a fully interactive prompt, or pass flags to skip any 
 |---|---|
 | Cloud or Local Core (`--target`) | Where files get scanned (default: local) |
 | `--local-url` | Local Core base URL (overrides `OPSWAT_LOCAL_URL`; default `http://127.0.0.1:8008`) |
+| Unzip before uploading (`--unzip` / `--no-unzip`) | Extract zips locally before upload instead of sending them archived (default: yes). Each extracted file is deleted immediately after its own successful upload, and no `archivepwd` is sent for it. Zips left archived still get `archivepwd` and are unpacked by MetaDefender server-side. |
 | Download count (`--count`) | How many MalwareBazaar samples to pull (default: 5) |
 | File types (`--file-types`) | Comma-separated filter, e.g. `exe,dll` (blank = any) |
 | Malware families (`--families`) | Comma-separated filter, e.g. `AgentTesla,Emotet` (blank = random) |

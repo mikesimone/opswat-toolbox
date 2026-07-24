@@ -7,7 +7,10 @@ Default behavior:
   - Interactively downloads N samples from MalwareBazaar into ~/malwarecage
     (delivered as password-protected zips; NOT unzipped locally). --no-download skips this.
   - Recursively scans ~/malwarecage (C:\Users\<you>\malwarecage on Windows)
-  - Uploads each file to MetaDefender with archive password "infected"
+  - Prompts whether to unzip files locally before uploading (default yes; --unzip/--no-unzip
+    to skip the prompt). When unzipped, each extracted file is deleted immediately after its
+    own successful upload, and no archive password is sent for it. When left zipped, uploads
+    with archive password "infected" and lets MetaDefender unpack it server-side.
   - Deletes each local .zip after a successful upload (use --keep-zips to keep them)
   - Uses rule: multiscan,unarchive,sanitize (MetaDefender unpacks the zips server-side)
   - Polls for completed analysis
@@ -45,6 +48,7 @@ import random
 import sys
 import textwrap
 import time
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -169,6 +173,69 @@ def iter_files(root: Path) -> list[Path]:
             files.append(path)
 
     return sorted(files)
+
+
+def unzip_password_protected(zip_path: Path, password: str) -> list[Path]:
+    """Extract every member of ``zip_path`` alongside it, return the extracted paths.
+
+    Filenames are flattened to their basename (ignoring any directory
+    component the zip entry carries) so extracted samples land directly in
+    the scan directory next to everything else, and a malicious entry can't
+    zip-slip its way outside it.
+    """
+    dest_dir = zip_path.parent
+    extracted: list[Path] = []
+
+    with zipfile.ZipFile(zip_path) as zf:
+        pwd = password.encode("utf-8") if password else None
+
+        for info in zf.infolist():
+            if info.is_dir():
+                continue
+
+            out_path = dest_dir / Path(info.filename).name
+            out_path.write_bytes(zf.read(info, pwd=pwd))
+            extracted.append(out_path)
+
+    return extracted
+
+
+def run_unzip_phase(
+    files: list[Path], archive_password: str | None, keep_zips: bool
+) -> tuple[list[Path], set[Path]]:
+    """Extract each .zip in ``files`` in place, deleting the zip once extracted.
+
+    Returns the updated file list (zips replaced by their extracted members)
+    and the set of extracted paths, so callers know which files no longer
+    need an archive password and must be deleted right after upload.
+    """
+    updated: list[Path] = []
+    extracted_paths: set[Path] = set()
+
+    for path in files:
+        if path.suffix.lower() != ".zip":
+            updated.append(path)
+            continue
+
+        try:
+            members = unzip_password_protected(path, archive_password or "")
+        except (zipfile.BadZipFile, NotImplementedError, RuntimeError, OSError) as exc:
+            print(f"[unzip] failed for {path.name}: {exc}; uploading zip as-is", file=sys.stderr)
+            updated.append(path)
+            continue
+
+        print(f"[unzip] {path.name} -> {len(members)} file(s)")
+        updated.extend(members)
+        extracted_paths.update(members)
+
+        if not keep_zips:
+            try:
+                path.unlink()
+                print(f"         deleted local zip: {path.name}")
+            except OSError as exc:
+                print(f"         [warn] could not delete {path}: {exc}", file=sys.stderr)
+
+    return sorted(updated), extracted_paths
 
 
 # --- MalwareBazaar download phase --------------------------------------------
@@ -852,9 +919,28 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--archive-password",
         default=DEFAULT_ARCHIVE_PASSWORD,
-        help=f'Archive password sent to MetaDefender (archivepwd). Default: "{DEFAULT_ARCHIVE_PASSWORD}".',
+        help=f'Archive password sent to MetaDefender (archivepwd). Default: "{DEFAULT_ARCHIVE_PASSWORD}". '
+        "Only sent for files still zipped at upload time; see --unzip.",
     )
     parser.add_argument("--file-password", default=None)
+
+    parser.add_argument(
+        "--unzip",
+        dest="unzip_files",
+        action="store_const",
+        const=True,
+        default=None,
+        help="Extract zip files locally before uploading, deleting each extracted file "
+        "immediately after its own successful submission. Omit for an interactive "
+        "prompt (default: yes).",
+    )
+    parser.add_argument(
+        "--no-unzip",
+        dest="unzip_files",
+        action="store_const",
+        const=False,
+        help="Upload zip files as-is; MetaDefender unpacks them server-side via archivepwd.",
+    )
 
     # --- MalwareBazaar download phase ---
     parser.add_argument(
@@ -929,6 +1015,15 @@ def main() -> int:
         print(f"Missing API key. Set {env_name} or pass --api-key.", file=sys.stderr)
         return 2
 
+    if args.unzip_files is None:
+        answer = prompt_default(
+            "Unzip files before uploading (extract, then delete the zip)? [Y/n]: ",
+            "y",
+        )
+        unzip_files = answer.strip().lower().startswith("y")
+    else:
+        unzip_files = args.unzip_files
+
     scan_dir = args.scan_dir_flag or args.scan_dir or DEFAULT_SCAN_DIR
 
     scan_root = Path(scan_dir).expanduser()
@@ -943,6 +1038,14 @@ def main() -> int:
     if not files:
         print(f"No regular files found under {scan_root}")
         return 0
+
+    extracted_paths: set[Path] = set()
+    if unzip_files:
+        files, extracted_paths = run_unzip_phase(files, args.archive_password, args.keep_zips)
+
+        if not files:
+            print(f"No regular files found under {scan_root}")
+            return 0
 
     session = requests.Session()
     session.headers.update({"apikey": api_key})
@@ -960,13 +1063,17 @@ def main() -> int:
     for path in files:
         print(f"[upload] {path}")
 
+        is_zip = path.suffix.lower() == ".zip"
+
         submitted_file = upload_file(
             session,
             path,
             rule=rule,
             private=args.private,
             private_processing=args.private_processing,
-            archive_password=args.archive_password,
+            # Only files still zipped at upload time need MetaDefender to
+            # unpack them server-side; already-extracted files send none.
+            archive_password=args.archive_password if is_zip else None,
             file_password=args.file_password,
         )
 
@@ -975,9 +1082,18 @@ def main() -> int:
         print(f"         data_id={submitted_file.data_id}")
         print(f"         sha256={submitted_file.sha256}")
 
-        # Delete the local zip once it's safely uploaded (upload_file raises on
-        # failure, so we only reach here on success). Non-zip files are left alone.
-        if not args.keep_zips and path.suffix.lower() == ".zip":
+        # Delete the local file once it's safely uploaded (upload_file raises
+        # on failure, so we only reach here on success). Files we extracted
+        # ourselves are always deleted right away, regardless of
+        # --keep-zips -- that flag is about keeping the original archive,
+        # not leaving unpacked samples sitting on disk.
+        if path in extracted_paths:
+            try:
+                path.unlink()
+                print(f"         deleted extracted file: {path.name}")
+            except OSError as exc:
+                print(f"         [warn] could not delete {path}: {exc}", file=sys.stderr)
+        elif not args.keep_zips and is_zip:
             try:
                 path.unlink()
                 print(f"         deleted local zip: {path.name}")
