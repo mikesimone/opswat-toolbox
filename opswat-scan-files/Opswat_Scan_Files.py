@@ -361,7 +361,7 @@ def split_csv(value: str) -> list[str]:
     return [part.strip() for part in value.split(",") if part.strip()]
 
 
-def run_download_phase(args: argparse.Namespace, dest_dir: Path) -> None:
+def run_download_phase(args: argparse.Namespace, dest_dir: Path, unzip_files: bool) -> None:
     # CLI flags win; otherwise ask interactively.
     if args.count is not None:
         count = args.count
@@ -427,9 +427,10 @@ def run_download_phase(args: argparse.Namespace, dest_dir: Path) -> None:
     # Shuffle the whole pool and walk it until we hit the requested count, so a
     # few failed/unavailable samples get topped up from the remaining candidates.
     random.shuffle(candidates)
+    fate = "will be unzipped locally next" if unzip_files else "stay encrypted, NOT unzipped locally"
     print(
         f"[mb] {len(candidates)} candidate(s); downloading up to {count} "
-        f"password-protected zip(s) (NOT unzipped locally)."
+        f"password-protected zip(s) ({fate})."
     )
 
     downloaded = 0
@@ -1057,7 +1058,7 @@ def main() -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     if not args.no_download:
-        run_download_phase(args, scan_root)
+        run_download_phase(args, scan_root, unzip_files)
 
     files = iter_files(scan_root)
 
@@ -1078,6 +1079,7 @@ def main() -> int:
 
     submitted: list[SubmittedFile] = []
     summaries: list[dict[str, Any]] = []
+    failed: list[Path] = []
 
     print(f"Target          : {target}  ({API_BASE})")
     print(f"Scan directory  : {scan_root}")
@@ -1091,17 +1093,34 @@ def main() -> int:
 
         is_zip = path.suffix.lower() == ".zip"
 
-        submitted_file = upload_file(
-            session,
-            path,
-            rule=rule,
-            private=args.private,
-            private_processing=args.private_processing,
-            # Only files still zipped at upload time need MetaDefender to
-            # unpack them server-side; already-extracted files send none.
-            archive_password=args.archive_password if is_zip else None,
-            file_password=args.file_password,
-        )
+        try:
+            submitted_file = upload_file(
+                session,
+                path,
+                rule=rule,
+                private=args.private,
+                private_processing=args.private_processing,
+                # Only files still zipped at upload time need MetaDefender to
+                # unpack them server-side; already-extracted files send none.
+                archive_password=args.archive_password if is_zip else None,
+                file_password=args.file_password,
+            )
+        except FileNotFoundError:
+            # Seen in practice with --unzip: something outside this script
+            # (an EDR/AV quarantining the now-plaintext sample) can delete
+            # the file out from under us before we get to it. Don't let one
+            # vanished file kill the rest of the batch.
+            print(
+                f"         [warn] {path.name} vanished before upload (likely quarantined by "
+                "antivirus/EDR); skipping",
+                file=sys.stderr,
+            )
+            failed.append(path)
+            continue
+        except (OSError, RuntimeError, requests.RequestException) as exc:
+            print(f"         [warn] upload failed for {path.name}: {exc}; skipping", file=sys.stderr)
+            failed.append(path)
+            continue
 
         submitted.append(submitted_file)
 
@@ -1174,6 +1193,13 @@ def main() -> int:
 
     print_table(summaries)
     print_details(summaries)
+
+    if failed:
+        print()
+        print(f"Skipped {len(failed)} file(s) that failed to upload:")
+        for path in failed:
+            print(f"  - {path.name}")
+
     print()
     print(f"Full reports: {output_dir.resolve()}")
     print(f"Summary JSON: {summary_path.resolve()}")
