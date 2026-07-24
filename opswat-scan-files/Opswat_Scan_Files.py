@@ -187,20 +187,41 @@ def unzip_password_protected(zip_path: Path, password: str) -> list[Path]:
     component the zip entry carries) so extracted samples land directly in
     the scan directory next to everything else, and a malicious entry can't
     zip-slip its way outside it.
+
+    All members are read into memory before anything is written to disk.
+    MalwareBazaar's "zip" file type means the payload *inside* the archive
+    can be named identically to the archive itself (both "<sha256>.zip") --
+    writing member-by-member while the archive was still open at that same
+    path used to silently overwrite the archive with the extracted bytes,
+    which the subsequent "delete the zip" step would then also delete,
+    losing the sample entirely. Any name that collides with the archive's
+    own path, or with a leftover file from a previous run, gets disambiguated
+    instead of clobbered.
     """
     dest_dir = zip_path.parent
-    extracted: list[Path] = []
+    pwd = password.encode("utf-8") if password else None
 
     with pyzipper.AESZipFile(zip_path) as zf:
-        pwd = password.encode("utf-8") if password else None
+        members = [
+            (info.filename, zf.read(info, pwd=pwd))
+            for info in zf.infolist()
+            if not info.is_dir()
+        ]
 
-        for info in zf.infolist():
-            if info.is_dir():
-                continue
+    extracted: list[Path] = []
 
-            out_path = dest_dir / Path(info.filename).name
-            out_path.write_bytes(zf.read(info, pwd=pwd))
-            extracted.append(out_path)
+    for filename, data in members:
+        out_path = dest_dir / Path(filename).name
+
+        if out_path == zip_path or out_path.exists():
+            stem, suffix = out_path.stem, out_path.suffix
+            n = 1
+            while out_path == zip_path or out_path.exists():
+                out_path = dest_dir / f"{stem}.extracted{n}{suffix}"
+                n += 1
+
+        out_path.write_bytes(data)
+        extracted.append(out_path)
 
     return extracted
 
