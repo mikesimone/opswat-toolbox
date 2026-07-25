@@ -52,6 +52,8 @@ If you don't know your profile path, `notepad $PROFILE` will create/open it. The
 
 Only set the keys for the paths you plan to use (e.g. skip `MALWAREBAZAAR_API_KEY` if you'll always pass `--no-download`).
 
+**Create the scan directory**: `mkdir -p ~/malwarecage` (or wherever `--dir` points). The MalwareBazaar download phase creates it automatically if missing, but if you run with `--no-download` to scan an existing folder, the directory must already exist — the script errors out ("Directory does not exist") rather than creating an empty one.
+
 **If you use `--unzip`, exclude the scan directory from your antivirus/EDR.** With samples extracted to plaintext, an on-access scanner can quarantine a file between extraction and upload (or between upload and cleanup), which the script now survives per-file but which still means lost samples/skipped scans. On sixofone (Cisco Secure Endpoint), the fix was a policy path exclusion for `/home/.*/malwarecage`, then `sudo systemctl restart cisco-amp.service` to pick it up — see `Infrastructure/sixofone.md` in the `Environment` repo. Exclude whatever directory `--dir`/`OPSWAT_LOCAL_URL` scanning points at on your own box.
 
 ## Options you'll fill in as it runs
@@ -67,7 +69,7 @@ Run with no arguments for a fully interactive prompt, or pass flags to skip any 
 | File types (`--file-types`) | Comma-separated filter, e.g. `exe,dll` (blank = any) |
 | Malware families (`--families`) | Comma-separated filter, e.g. `AgentTesla,Emotet` (blank = random) |
 | `--no-download` | Skip MalwareBazaar entirely, just scan an existing folder |
-| `--dir` / positional arg | Directory to scan (default: `~/malwarecage`) |
+| `--dir` / positional arg | Directory to scan (default: `~/malwarecage`; must already exist if used with `--no-download`) |
 | `--out` | Where JSON reports get saved (default: `~/opswat/results`) |
 | `--rule` | Override processing rule (Cloud default: `multiscan,unarchive,sanitize`) |
 | `--private` | Sets `samplesharing: 0` |
