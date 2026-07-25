@@ -5,10 +5,10 @@
 This script automates end-to-end testing of MetaDefender against real malware samples. It has two phases:
 
 **1. Pull test samples from MalwareBazaar** (optional, on by default)
-Queries MalwareBazaar for samples — filterable by malware family (e.g. `Emotet`, `AgentTesla`) or file type (e.g. `exe`, `dll`) — and downloads up to N of them into `~/malwarecage`. Samples stay as password-protected ZIPs (`infected`) and are never extracted locally.
+Queries MalwareBazaar for samples — filterable by malware family (e.g. `Emotet`, `AgentTesla`) or file type (e.g. `exe`, `dll`) — and downloads up to N of them into `~/malwarecage` as password-protected ZIPs (`infected`).
 
 **2. Scan with MetaDefender**
-Recursively walks the scan directory, uploads each file to either MetaDefender Cloud or a local MetaDefender Core instance, using rule `multiscan,unarchive,sanitize` so MetaDefender unpacks the encrypted ZIP server-side, multiscans it, and runs CDR. It polls until each scan completes, deletes the local ZIP once successfully uploaded, prints a results table, and saves full JSON reports plus a `summary.json`.
+By default, prompts whether to extract each ZIP locally before uploading (`--unzip`/`--no-unzip`, see below); either way, recursively walks the scan directory, uploads each file to either MetaDefender Cloud or a local MetaDefender Core instance, and polls until each scan completes. Left archived, uploads use rule `multiscan,unarchive,sanitize` so MetaDefender unpacks the ZIP server-side. It deletes each local file immediately once successfully uploaded, prints a results table, and saves full JSON reports plus a `summary.json`.
 
 ## Why I built this
 
@@ -51,6 +51,8 @@ $env:MALWAREBAZAAR_API_KEY = "your_malwarebazaar_authkey_here"
 If you don't know your profile path, `notepad $PROFILE` will create/open it. These take effect in new PowerShell sessions only.
 
 Only set the keys for the paths you plan to use (e.g. skip `MALWAREBAZAAR_API_KEY` if you'll always pass `--no-download`).
+
+**If you use `--unzip`, exclude the scan directory from your antivirus/EDR.** With samples extracted to plaintext, an on-access scanner can quarantine a file between extraction and upload (or between upload and cleanup), which the script now survives per-file but which still means lost samples/skipped scans. On sixofone (Cisco Secure Endpoint), the fix was a policy path exclusion for `/home/.*/malwarecage`, then `sudo systemctl restart cisco-amp.service` to pick it up — see `Infrastructure/sixofone.md` in the `Environment` repo. Exclude whatever directory `--dir`/`OPSWAT_LOCAL_URL` scanning points at on your own box.
 
 ## Options you'll fill in as it runs
 
