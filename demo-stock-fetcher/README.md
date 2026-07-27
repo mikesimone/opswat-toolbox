@@ -1,18 +1,19 @@
 # demo-stock-fetcher
 
-Populates the two parts of [`demo-stock`](../demo-stock/) that can't live in
-this repo directly:
+Populates two things that logically belong to [`demo-stock`](../demo-stock/)
+but can't live in this repo, or anywhere in its working tree, at all:
 
-1. **Real, curated malware samples** (`demo-stock/steganography/`) - specific
-   known-hash MalwareBazaar downloads, not random ones (see
-   `CURATED_SAMPLES` in `fetch_demo_stock.py`).
+1. **Real, curated malware samples** (`~/malwarecage/steganography/` by
+   default) - specific known-hash MalwareBazaar downloads, not random ones
+   (see `CURATED_SAMPLES` in `fetch_demo_stock.py`).
 2. **The L3i/ICDAR 2023 "Find it again!" receipt-forgery research dataset**
-   (`demo-stock/findit2-benchmark/`) - ~674MB zip, ~1GB / ~1,977 files
-   extracted.
+   (`~/malwarecage/findit2-benchmark/` by default) - ~674MB zip, ~1GB /
+   ~1,977 files extracted.
 
-## Why a fetch script instead of committing the files
+## Why a fetch script instead of committing the files - and why it targets `~/malwarecage`, not this repo
 
-Two different reasons, one per folder:
+Two different reasons, one per folder - but both land outside the repo
+entirely, not just gitignored inside it:
 
 - **Real malware** - `opswat-toolbox` is a **public** repo, intentionally (so
   coworkers and customers can grab it without being added as collaborators).
@@ -20,21 +21,33 @@ Two different reasons, one per folder:
   GitHub's malware/acceptable-use policies regardless of the
   password-protected-zip mitigation (MalwareBazaar's standard `infected`
   password) - this isn't about whether it's a good idea, it's a
-  platform-policy problem. The repo's own root `.gitignore` already excludes
-  `malwarecage/`/`*.zip` for exactly this reason. This script re-downloads
-  the *same specific curated hashes* directly from MalwareBazaar, so every
-  coworker gets the identical stock without any malware bytes ever touching
-  git/GitHub itself.
-- **The research dataset** - not a policy problem, just size: committing
-  ~1GB directly would permanently bloat every future clone of this repo.
-  Re-fetched fresh instead.
+  platform-policy problem. Separately, and just as important: `~/malwarecage`
+  is the directory that's supposed to be excluded from your machine's AV/EDR
+  real-time scanning (Six's Cisco Secure Endpoint exclusion is documented in
+  `~/Environment/Infrastructure/sixofone.md`). A git checkout of this repo
+  has no such exclusion - downloading real malware into `demo-stock/` itself
+  (even gitignored, never committed) would still sit unprotected on disk and
+  could get quarantined mid-demo. This script re-downloads the *same specific
+  curated hashes* directly from MalwareBazaar into `~/malwarecage` instead,
+  so every coworker gets the identical stock, protected the same way the
+  rest of their MalwareBazaar samples already are, and no malware bytes ever
+  touch git/GitHub itself.
+- **The research dataset** - not a policy or AV-exclusion problem, just
+  size: committing ~1GB directly would permanently bloat every future clone
+  of this repo. Re-fetched fresh into `~/malwarecage` alongside the malware
+  samples, mostly for consistency (one destination, one exclusion to set up).
 
 ## Running it
 
 ```
 export MALWAREBAZAAR_API_KEY=...   # see bazaar.abuse.ch for a free key
-python3 fetch_demo_stock.py
+python3 fetch_demo_stock.py                  # -> ~/malwarecage
+python3 fetch_demo_stock.py --dest /some/other/excluded/path   # override
 ```
+
+Set up your AV/EDR exclusion for wherever `--dest` points **before**
+running this - default `~/malwarecage` if you haven't already for other
+opswat-toolbox work.
 
 Safe to re-run - skips anything already present, so a second run after an
 interrupted first one just picks up where it left off. The malware part
@@ -42,7 +55,10 @@ interrupted first one just picks up where it left off. The malware part
 minutes depending on your connection. Verified end-to-end 2026-07-27: all 6
 samples fetched with correct byte sizes, findit2-benchmark extracted to
 exactly 1,977 files, and a repeat run correctly detected everything already
-present and skipped without re-downloading.
+present and skipped without re-downloading - including after a path-mismatch
+bug where an earlier manual layout had findit2 nested a level deeper than
+this script expects; fixed by aligning the manual copy to the same top-level
+`~/malwarecage/findit2-benchmark/` layout this script uses.
 
 ## A third dataset that deliberately isn't here
 

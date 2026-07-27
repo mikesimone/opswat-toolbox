@@ -4,30 +4,36 @@
   1. Real, curated malware samples (specific known-hash MalwareBazaar
      downloads) - opswat-toolbox is a PUBLIC repo, and committing real
      malware to a public repo runs into GitHub's malware/acceptable-use
-     policies regardless of the password-protected-zip mitigation. The
-     repo's own .gitignore already excludes malwarecage/*.zip for exactly
-     this reason - this script re-fetches the SAME curated samples (fixed
-     hashes below, not random ones) so everyone gets the identical stock.
+     policies regardless of the password-protected-zip mitigation. This
+     script re-fetches the SAME curated samples (fixed hashes below, not
+     random ones) so everyone gets the identical stock.
 
   2. The L3i/ICDAR 2023 "Find it again!" receipt-forgery research dataset
      (~674MB zip, ~1GB extracted, ~1,977 files) - not a malware/policy
      issue, just too large to reasonably commit to git (permanently bloats
      every future clone).
 
+Both land in ~/malwarecage by default (override with --dest), matching
+opswat-scan-files' own DEFAULT_SCAN_DIR - **not** inside this repo's working
+tree. That's deliberate, not just a naming choice: ~/malwarecage is the
+directory real malware samples are supposed to be excluded from AV/EDR
+scanning on (e.g. Six's Cisco Secure Endpoint path exclusion, see
+Infrastructure/sixofone.md in the Environment repo) - a git checkout of
+opswat-toolbox has no such exclusion, so downloading real malware into
+demo-stock/ itself would sit unprotected. Set up that same exclusion for
+wherever --dest points on your own machine before running this.
+
 Safe to re-run: skips anything already present. Requires MALWAREBAZAAR_API_KEY
 in the environment for part 1 (see ~/Environment/hosts/.<hostname> on Six, or
 get a free key from bazaar.abuse.ch and export it yourself).
 """
+import argparse
 import json
 import os
 import sys
 import urllib.request
 import zipfile
 from pathlib import Path
-
-DEMO_STOCK_DIR = Path(__file__).parent.parent / "demo-stock"
-STEGANOGRAPHY_DIR = DEMO_STOCK_DIR / "steganography"
-FINDIT2_DIR = DEMO_STOCK_DIR / "findit2-benchmark"
 
 MB_API = "https://mb-api.abuse.ch/api/v1/"
 
@@ -46,7 +52,7 @@ CURATED_SAMPLES = [
 FINDIT2_URL = "https://l3i-share.univ-lr.fr/2023Finditagain/findit2.zip"
 
 
-def fetch_malware_samples():
+def fetch_malware_samples(dest: Path):
     api_key = os.environ.get("MALWAREBAZAAR_API_KEY")
     if not api_key:
         print("MALWAREBAZAAR_API_KEY not set - skipping real malware samples. "
@@ -54,9 +60,10 @@ def fetch_malware_samples():
               file=sys.stderr)
         return
 
-    STEGANOGRAPHY_DIR.mkdir(exist_ok=True)
+    steganography_dir = dest / "steganography"
+    steganography_dir.mkdir(parents=True, exist_ok=True)
     for sha256, filename in CURATED_SAMPLES:
-        out_path = STEGANOGRAPHY_DIR / filename
+        out_path = steganography_dir / filename
         if out_path.exists():
             print(f"[steganography] already have {filename}, skipping")
             continue
@@ -81,25 +88,27 @@ def fetch_malware_samples():
         print(f"[steganography] fetched {filename} ({len(content)} bytes)")
 
 
-def fetch_findit2():
-    if FINDIT2_DIR.exists() and any(FINDIT2_DIR.iterdir()):
+def fetch_findit2(dest: Path):
+    findit2_dir = dest / "findit2-benchmark"
+    if findit2_dir.exists() and any(findit2_dir.iterdir()):
         print("[findit2-benchmark] already present, skipping")
         return
 
-    tmp_zip = DEMO_STOCK_DIR / "findit2.zip.tmp"
+    tmp_zip = dest / "findit2.zip.tmp"
+    dest.mkdir(parents=True, exist_ok=True)
     print(f"[findit2-benchmark] downloading from {FINDIT2_URL} (~674MB, this takes a while)...")
     urllib.request.urlretrieve(FINDIT2_URL, tmp_zip)
 
     print("[findit2-benchmark] extracting...")
-    FINDIT2_DIR.mkdir(exist_ok=True)
+    findit2_dir.mkdir(exist_ok=True)
     with zipfile.ZipFile(tmp_zip) as z:
         bad = z.testzip()
         if bad is not None:
             raise RuntimeError(f"downloaded zip is corrupt at member {bad}, try again")
-        z.extractall(FINDIT2_DIR)
+        z.extractall(findit2_dir)
 
     # Strip macOS resource-fork junk that the source zip carries.
-    macosx_dir = FINDIT2_DIR / "__MACOSX"
+    macosx_dir = findit2_dir / "__MACOSX"
     if macosx_dir.exists():
         import shutil
         shutil.rmtree(macosx_dir)
@@ -109,5 +118,15 @@ def fetch_findit2():
 
 
 if __name__ == "__main__":
-    fetch_malware_samples()
-    fetch_findit2()
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument(
+        "--dest",
+        default="~/malwarecage",
+        help="Where to put the fetched content - must be a directory excluded from your "
+        "AV/EDR real-time scanning. Default: ~/malwarecage.",
+    )
+    args = parser.parse_args()
+    dest = Path(args.dest).expanduser()
+
+    fetch_malware_samples(dest)
+    fetch_findit2(dest)

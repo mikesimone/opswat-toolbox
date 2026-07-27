@@ -5,11 +5,12 @@ expected to be cleaned up), everything here is a **fixed, curated set**
 meant to give customer demos a stable stable of samples instead of whatever
 random. Built 2026-07-27.
 
-This folder holds the actual data. Two subfolders are checked into git
-directly; two more get created locally by running
-[`demo-stock-fetcher`](../demo-stock-fetcher/) once - see that tool's README
-for why they aren't just committed, and [`demo-stock-generator`](../demo-stock-generator/)
-for how the synthetic content here was made (and how to make more/different
+This folder holds the small, benign, git-safe half of the data - checked
+directly into git. The other half (real malware samples, a large research
+dataset) is deliberately **not** here and not anywhere in this repo at all -
+see "The other half lives in ~/malwarecage, not here" below before wondering
+where it went. [`demo-stock-generator`](../demo-stock-generator/) documents
+how the synthetic content here was made (and how to make more/different
 variants).
 
 ## Checked into git
@@ -37,11 +38,23 @@ being realistic enough in *rendering* to meaningfully test detection.
 | `AI-Generated-MoonInvoice-FraudDemo.png` | Composed, not diffusion (SDXL can't render legible line-item text - see `demo-stock-generator`'s README). A professional-looking invoice billed to "The Moon" for $1,000,000,000,000,000.00. |
 | `AI-Generated-UnicornMeadowReceipt-FraudDemo.png` | Same reasoning, receipt format - "Unicorn tears," "Dragon scale," paid via a "Narnia" gift card. |
 
-## Populated by `demo-stock-fetcher` (not committed to git)
+## The other half lives in `~/malwarecage`, not here
 
 Run `python3 ../demo-stock-fetcher/fetch_demo_stock.py` once (needs
-`MALWAREBAZAAR_API_KEY` in the environment) to create these two folders.
-Safe to re-run - skips anything already present.
+`MALWAREBAZAAR_API_KEY` in the environment) to populate `~/malwarecage/
+steganography/` and `~/malwarecage/findit2-benchmark/`. Safe to re-run -
+skips anything already present.
+
+**This is not just "not committed to git" the way a `.gitignore`'d build
+artifact is - it's not created anywhere inside this repo's working tree at
+all, by design.** `~/malwarecage` is the directory that's supposed to be
+excluded from your machine's AV/EDR real-time scanning (Six's Cisco Secure
+Endpoint exclusion is documented in `~/Environment/Infrastructure/
+sixofone.md`, if you need a reference for setting up your own) - a plain git
+checkout of this repo has no such exclusion, so real malware downloaded into
+`demo-stock/` itself would sit unprotected and could get quarantined
+mid-demo. Set up your own equivalent exclusion for `~/malwarecage` (or
+wherever you point `fetch_demo_stock.py --dest` instead) before running it.
 
 ### `steganography/` - real, malicious samples (from MalwareBazaar)
 
