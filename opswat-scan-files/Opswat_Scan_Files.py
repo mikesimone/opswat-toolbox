@@ -135,12 +135,6 @@ RESULT_LABELS = {
     255: "Queued / pending",
 }
 
-# scan_all_result_i values that are NOT a final verdict. 254/255 are the
-# classic in-progress/queued codes; 69 ("OPSWAT AI Undetermined") is transient
-# too — the deflection engine couldn't decide, so MetaDefender routes the file
-# to the full scan pipeline and scan_all_result_i is updated once it finishes.
-IN_PROGRESS_CODES = frozenset({69, 254, 255})
-
 
 @dataclass
 class SubmittedFile:
@@ -608,17 +602,17 @@ def scan_code(report: dict[str, Any]) -> int | None:
 
 
 def is_complete(report: dict[str, Any]) -> bool:
-    # Progress of 100% is always terminal — even if the code is still a
-    # transient one, there is nothing further to wait for.
-    if progress_percent(report) >= 100:
-        return True
-
-    code = scan_code(report)
-
-    if code is not None and code not in IN_PROGRESS_CODES:
-        return True
-
-    return False
+    # Only progress_percentage >= 100 is trustworthy as "done". Core reports
+    # scan_all_result_i as a terminal-looking code (e.g. 0 "Clean") the
+    # moment the fast AV multiscan pass finishes, while the slower ML engines
+    # (aicontentinspector_info, dlp_info) are still running as async
+    # post-processing — and can later overwrite that verdict entirely (seen
+    # in practice: Clean at progress=95% flipped to "Sensitive Data Found"
+    # with AI content detected once progress reached 100%). Treating a
+    # terminal scan_all_result_i as done on its own silently truncates the
+    # report before those engines report in, so it is no longer used as an
+    # early-exit condition here.
+    return progress_percent(report) >= 100
 
 
 def flatten_sanitization(details: Any) -> list[tuple[str, str, int]]:
