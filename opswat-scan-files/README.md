@@ -70,6 +70,7 @@ Run with no arguments for a fully interactive prompt, or pass flags to skip any 
 | Malware families (`--families`) | Comma-separated filter, e.g. `AgentTesla,Emotet` (blank = random) |
 | `--no-download` | Skip MalwareBazaar entirely, just scan an existing folder |
 | `--dir` / positional arg | Directory to scan (default: `~/malwarecage`; must already exist if used with `--no-download`) |
+| `--sample-count` | If more files are found than this, randomly sample down to it before doing anything else (default: 5). Pass `0` to scan everything - useful for a small ephemeral MalwareBazaar pull, but a curated permanent stock like `demo-stock` can hold thousands of files, and a demo run doesn't need all of them uploaded. |
 | `--out` | Where JSON reports get saved (default: `~/opswat/results`) |
 | `--rule` | Override processing rule (Cloud default: `multiscan,unarchive,sanitize`) |
 | `--private` | Sets `samplesharing: 0` |

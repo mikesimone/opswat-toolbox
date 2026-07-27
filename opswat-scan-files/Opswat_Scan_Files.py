@@ -7,6 +7,10 @@ Default behavior:
   - Interactively downloads N samples from MalwareBazaar into ~/malwarecage
     (delivered as password-protected zips; NOT unzipped locally). --no-download skips this.
   - Recursively scans ~/malwarecage (C:\Users\<you>\malwarecage on Windows)
+  - If more than 5 files are found, randomly samples down to 5 before doing
+    anything else (--sample-count to change, 0 to scan everything) - a
+    curated permanent stock like opswat-toolbox's demo-stock can hold
+    thousands of files, and a demo run doesn't need all of them uploaded
   - Prompts whether to unzip files locally before uploading (default yes; --unzip/--no-unzip
     to skip the prompt). When unzipped, each extracted file is deleted immediately after its
     own successful upload, and no archive password is sent for it. When left zipped, uploads
@@ -969,6 +973,16 @@ def parse_args() -> argparse.Namespace:
         help="Upload zip files as-is; MetaDefender unpacks them server-side via archivepwd.",
     )
 
+    parser.add_argument(
+        "--sample-count",
+        type=int,
+        default=5,
+        help="Scan at most this many files, chosen at random, instead of every file found "
+        "under scan_dir - a curated permanent stock (e.g. demo-stock) can hold thousands "
+        "of files, and a demo doesn't need all of them uploaded every run. Pass 0 to scan "
+        "everything found. Default: 5.",
+    )
+
     # --- MalwareBazaar download phase ---
     parser.add_argument(
         "--no-download",
@@ -1065,6 +1079,11 @@ def main() -> int:
     if not files:
         print(f"No regular files found under {scan_root}")
         return 0
+
+    if args.sample_count > 0 and len(files) > args.sample_count:
+        print(f"Found {len(files)} files under {scan_root}; sampling {args.sample_count} at random "
+              f"(pass --sample-count 0 to scan everything).")
+        files = sorted(random.sample(files, args.sample_count))
 
     extracted_paths: set[Path] = set()
     if unzip_files:

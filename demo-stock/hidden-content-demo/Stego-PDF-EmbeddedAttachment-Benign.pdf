@@ -1,0 +1,61 @@
+%PDF-1.6
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R /Names << /EmbeddedFiles 7 0 R >> >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 6 0 R >> >> /Contents 5 0 R >>
+endobj
+5 0 obj
+<< /Length 231 >>
+stream
+BT
+/F1 18 Tf
+72 700 Td
+(This PDF has a hidden file attachment embedded inside it.) Tj
+0 -24 Td
+(See the /EmbeddedFiles entry in the document's Name tree.) Tj
+0 -24 Td
+(Benign payload: a plain .txt file, no macro or exploit.) Tj
+ET
+endstream
+endobj
+6 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+7 0 obj
+<< /Names [(hidden-attachment.txt) 8 0 R] >>
+endobj
+8 0 obj
+<< /Type /Filespec /F (hidden-attachment.txt) /EF << /F 9 0 R >> >>
+endobj
+9 0 obj
+<< /Type /EmbeddedFile /Length 327 >>
+stream
+This is a plain text file embedded inside a PDF container.
+No macro, no exploit, no executable content - just a demonstration
+that a PDF can carry an arbitrary hidden attachment a casual viewer
+would never notice, the same technique real malware uses to smuggle
+a weaponized Office file inside what looks like an ordinary PDF.
+endstream
+endobj
+xref
+0 10
+0000000000 65535 f 
+0000000015 00000 n 
+0000000098 00000 n 
+0000000155 00000 n 
+0000000000 00000 f 
+0000000281 00000 n 
+0000000562 00000 n 
+0000000632 00000 n 
+0000000692 00000 n 
+0000000775 00000 n 
+trailer
+<< /Size 10 /Root 1 0 R >>
+startxref
+1172
+%%EOF

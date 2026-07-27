@@ -21,3 +21,10 @@ malwarecage/
 opswat/
 results/
 summary.json
+
+# demo-stock-fetcher's output - real malware (also covered by *.zip above,
+# kept explicit for clarity) and the large findit2 research dataset. Fetch
+# fresh via demo-stock-fetcher/fetch_demo_stock.py instead of committing.
+demo-stock/steganography/
+demo-stock/findit2-benchmark/
+demo-stock/findit2.zip.tmp
